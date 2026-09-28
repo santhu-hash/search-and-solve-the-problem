@@ -1,0 +1,6 @@
+{
+  "name": "FixBench — Mobile Diagnostic & Step-by-Step Repair Guide",
+  "description": "Configure your mobile brand, model, and hardware specs to diagnose any smartphone problem, virus, or hardware issue with clear step-by-step repair instructions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
