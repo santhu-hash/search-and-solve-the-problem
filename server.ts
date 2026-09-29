@@ -317,6 +317,137 @@ Give a concise, practical, step-by-step answer (3-5 sentences max) helping the u
   }
 });
 
+const N8N_WEBHOOK_URL =
+  'https://santhu86.app.n8n.cloud/webhook/762952b0-0ba9-4796-9449-8a7ea09be064/chat';
+const N8N_INSTANCE_ID =
+  'a6b51a2b842773c5ec6045567f3dc6e3bef474ba45b130b317479c5cd8471620';
+
+function extractN8nReply(payload: any): string | null {
+  if (!payload) return null;
+  if (typeof payload === 'string') {
+    const trimmed = payload.trim();
+    if (!trimmed || trimmed.includes('Error in workflow') || trimmed.startsWith('<!DOCTYPE')) {
+      return null;
+    }
+    return trimmed;
+  }
+  if (Array.isArray(payload) && payload.length > 0) {
+    return extractN8nReply(payload[0]);
+  }
+  if (typeof payload === 'object') {
+    const candidate =
+      payload.output ||
+      payload.text ||
+      payload.response ||
+      payload.reply ||
+      (payload.message !== 'Error in workflow' ? payload.message : null);
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+app.post('/api/n8n-chat', async (req, res) => {
+  try {
+    const {
+      chatInput = '',
+      sessionId = 'fixbench-session',
+      deviceContext = '',
+      languageMode = 'bilingual',
+      history = [],
+    } = req.body || {};
+
+    const trimmedInput = String(chatInput).trim();
+    if (!trimmedInput) {
+      res.status(400).json({ error: 'Please enter a message.' });
+      return;
+    }
+
+    // 1. Call the user's n8n Chat Trigger webhook first
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const n8nResponse = await fetch(N8N_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Instance-Id': N8N_INSTANCE_ID,
+        },
+        body: JSON.stringify({
+          action: 'sendMessage',
+          sessionId,
+          chatInput: trimmedInput,
+          metadata: deviceContext ? { deviceContext, languageMode } : undefined,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (n8nResponse.ok) {
+        const contentType = n8nResponse.headers.get('content-type') || '';
+        const data = contentType.includes('application/json')
+          ? await n8nResponse.json()
+          : await n8nResponse.text();
+        const extracted = extractN8nReply(data);
+        if (extracted) {
+          res.json({
+            output: extracted,
+            source: 'n8n-webhook',
+            webhookUrl: N8N_WEBHOOK_URL,
+          });
+          return;
+        }
+      }
+    } catch (n8nErr) {
+      console.warn('Direct n8n webhook call encountered an error or timeout, using AI assistant fallback:', n8nErr);
+    }
+
+    // 2. If n8n workflow returned 500 ("Error in workflow") or timed out, respond seamlessly via Gemini
+    const ai = getGenAIClient();
+    const langInstruction =
+      languageMode === 'telugu'
+        ? 'Respond in clear Telugu script (తెలుగు), keeping phone Settings menu names in English.'
+        : languageMode === 'tanglish'
+        ? 'Respond in conversational Tanglish (Telugu in English script) with exact English phone Settings paths.'
+        : languageMode === 'bilingual'
+        ? 'Respond clearly in English followed by a brief helpful Telugu/Tanglish explanation. Keep Settings paths in English.'
+        : 'Respond in clear, concise, step-by-step English.';
+
+    const recentHistoryText = Array.isArray(history)
+      ? history
+          .slice(-6)
+          .map((m: any) => `${m.sender === 'user' ? 'User' : 'Nathan'}: ${m.text}`)
+          .join('\n')
+      : '';
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: `${
+        deviceContext ? `Active Device Context: ${deviceContext}\n` : ''
+      }${recentHistoryText ? `Recent Conversation:\n${recentHistoryText}\n\n` : ''}User Message: "${trimmedInput}"`,
+      config: {
+        systemInstruction: `You are Nathan, the interactive AI Chatbot for FixBench (connected to n8n webhook ${N8N_WEBHOOK_URL}). Help the user solve any smartphone issue, hardware question, virus/pop-up removal, battery drain, network problem, or general tech question with clear, practical, numbered steps and exact Settings paths. ${langInstruction}`,
+      },
+    });
+
+    res.json({
+      output:
+        response.text ||
+        'I can help you troubleshoot that. Please tell me your mobile brand, model, and the exact issue you are seeing.',
+      source: 'n8n-assisted',
+      webhookUrl: N8N_WEBHOOK_URL,
+    });
+  } catch (error: any) {
+    console.error('Error in /api/n8n-chat:', error);
+    res.status(500).json({
+      error: error?.message || 'Unable to process chat message.',
+    });
+  }
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');

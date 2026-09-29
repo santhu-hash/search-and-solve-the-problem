@@ -17,14 +17,16 @@ import {
   Upload,
   X,
   Image as ImageIcon,
+  MessageSquare,
 } from 'lucide-react';
 import {
   buildTailoredReportFromSearch,
   type DiagnosticReport,
   type LanguageMode,
 } from './data/mobilePresets';
+import { N8nChatPanel } from './components/N8nChatWidget';
 
-type ActiveTab = 'search' | 'saved';
+type ActiveTab = 'search' | 'saved' | 'chat';
 
 interface UploadedScreenshot {
   fileName: string;
@@ -127,6 +129,8 @@ export default function App() {
     }
   });
   const [justSaved, setJustSaved] = useState<boolean>(false);
+  const [isFloatingChatOpen, setIsFloatingChatOpen] = useState<boolean>(false);
+  const [chatInitialPrompt, setChatInitialPrompt] = useState<string>('');
 
   useEffect(() => {
     try {
@@ -384,6 +388,20 @@ export default function App() {
             }`}
           >
             Saved Searches ({savedReports.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsFloatingChatOpen(false);
+              setActiveTab('chat');
+            }}
+            className={`whitespace-nowrap shrink-0 pb-0.5 transition-colors cursor-pointer ${
+              activeTab === 'chat'
+                ? 'text-slate-900 underline underline-offset-8 decoration-2 decoration-blue-600'
+                : 'hover:text-slate-900'
+            }`}
+          >
+            Live Chatbot
           </button>
         </nav>
 
@@ -1112,7 +1130,74 @@ export default function App() {
             )}
           </div>
         )}
+
+        {/* TAB 3: Dedicated n8n Chatbot View */}
+        {activeTab === 'chat' && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h1 className="text-xl font-bold text-slate-900">
+                  Live Mobile Support Chatbot (Nathan)
+                </h1>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Powered by your n8n workflow webhook (santhu86.app.n8n.cloud) with bilingual English, Telugu & Tanglish support
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('search')}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Back to Diagnostic Search
+              </button>
+            </div>
+
+            <N8nChatPanel
+              languageMode={languageMode}
+              deviceContext={
+                report?.detectedDeviceLabel ||
+                [brandInput, modelInput, configInput].filter(Boolean).join(' ')
+              }
+              isFullTab={true}
+              initialPrompt={chatInitialPrompt}
+              onClearInitialPrompt={() => setChatInitialPrompt('')}
+            />
+          </div>
+        )}
       </main>
+
+      {/* Floating Bottom-Right n8n Chatbot Widget (shown when not on full chat tab) */}
+      {activeTab !== 'chat' && (
+        <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end">
+          {isFloatingChatOpen ? (
+            <N8nChatPanel
+              languageMode={languageMode}
+              deviceContext={
+                report?.detectedDeviceLabel ||
+                [brandInput, modelInput, configInput].filter(Boolean).join(' ')
+              }
+              isFullTab={false}
+              isOpenFloating={isFloatingChatOpen}
+              onToggleFloating={setIsFloatingChatOpen}
+              onSwitchToTab={() => {
+                setIsFloatingChatOpen(false);
+                setActiveTab('chat');
+              }}
+              initialPrompt={chatInitialPrompt}
+              onClearInitialPrompt={() => setChatInitialPrompt('')}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsFloatingChatOpen(true)}
+              className="inline-flex items-center gap-2.5 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-lg transition-colors cursor-pointer"
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span>Chat with Nathan</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Quiet Footer */}
       <footer className="mt-auto border-t border-slate-200 bg-white px-6 py-4">
